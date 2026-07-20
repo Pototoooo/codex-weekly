@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.swiftpm/
+dist/
+*.xcuserstate
+xcuserdata/
+
+# Local icon iteration retained outside version control.
+Assets/AppIcon-1024-v1.png
