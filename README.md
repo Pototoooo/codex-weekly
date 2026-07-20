@@ -1,6 +1,10 @@
 # Codex Weekly
 
 <p align="center">
+  <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <img src="Assets/AppIcon-1024-v2.png" width="160" alt="Codex Weekly icon">
 </p>
 
@@ -10,65 +14,66 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Pototoooo/codex-weekly" alt="MIT License"></a>
 </p>
 
-一个轻量的原生 macOS 菜单栏工具，显示当前 Codex 账号的**一周剩余额度**和重置时间。
+A lightweight native macOS menu bar utility that displays the **weekly quota remaining** and reset time for the current Codex account.
 
-> 非 OpenAI 官方产品，与 OpenAI 无隶属或背书关系。
+> This is an independent community project. It is not affiliated with, endorsed by, or sponsored by OpenAI.
 
-## 特点
+## Features
 
-- 菜单栏直接显示剩余百分比
-- 每 60 秒自动刷新，也可手动刷新
-- 自动适配浅色、深色及全屏菜单栏背景
-- 低额度时切换为警告图标，不依赖固定颜色
-- 显示已使用比例及下一次重置时间
-- 可选“登录时启动”
-- 原生多分辨率 macOS 应用图标
-- 不读取、复制或上传 `~/.codex/auth.json`；额度通过本机 Codex CLI 的 `app-server` 接口读取
+- Shows the remaining weekly quota directly in the menu bar
+- Refreshes every 60 seconds, with manual refresh support
+- Automatically adapts to light, dark, and fullscreen menu bar backgrounds
+- Uses a warning symbol for low quota instead of relying on fixed colors
+- Shows the used percentage and next reset time
+- Optional launch at login
+- Native multi-resolution macOS app icon
+- Does not read, copy, or upload `~/.codex/auth.json`; quota data is retrieved through the local Codex CLI `app-server`
 
-## 安装
+## Installation
 
-1. 从 [Releases](https://github.com/Pototoooo/codex-weekly/releases/latest) 下载 `Codex-Weekly-macOS.zip`。
-2. 解压 `Codex-Weekly-macOS.zip`。
-3. 将 `Codex Weekly.app` 拖入“应用程序”。
-4. 双击运行。它是菜单栏软件，不会出现在程序坞中。
-5. 如果 macOS 首次阻止未公证的社区构建，请在 Finder 中右键应用并选择“打开”。
+1. Download `Codex-Weekly-macOS.zip` from the [latest release](https://github.com/Pototoooo/codex-weekly/releases/latest).
+2. Extract the archive.
+3. Move `Codex Weekly.app` to `/Applications`.
+4. Launch the app. It runs in the menu bar and does not appear in the Dock.
+5. If macOS blocks the non-notarized community build, right-click the app in Finder and choose **Open**.
 
-需要本机已安装并登录 Codex（Codex 桌面版或 Codex CLI）。
+Codex Desktop or Codex CLI must already be installed and signed in.
 
-## 构建与验证
+## Build and Verify
 
 ```bash
 ./build-app.sh
 .build/release/CodexWeekly --probe
 ```
 
-构建结果位于 `dist/`。要求 macOS 13+ 与 Xcode/Swift 6。
+Build artifacts are written to `dist/`. Building requires macOS 13+ and Xcode/Swift 6.
 
-## 工作原理
+## How It Works
 
-应用启动本机 Codex CLI 的 `app-server --stdio`，调用
-`account/rateLimits/read` 获取额度窗口，并选择 10,080 分钟（一周）的窗口显示。
+The app starts the local Codex CLI with `app-server --stdio`, calls
+`account/rateLimits/read`, and displays the quota window whose duration is
+10,080 minutes (one week).
 
-- 不直接读取 `~/.codex/auth.json`
-- 不复制或上传 Codex Token
-- 不包含统计、遥测或第三方网络请求
-- 所有额度读取均由本机 Codex CLI 完成
+- Does not directly read `~/.codex/auth.json`
+- Does not copy or upload Codex tokens
+- Contains no analytics, telemetry, or third-party network requests
+- All quota access is handled locally by the Codex CLI
 
-Codex CLI 属于实验性接口，未来协议变化可能需要同步适配。
+The Codex CLI app-server is experimental, so future protocol changes may require updates.
 
-## 开发
+## Development
 
 ```bash
 swift test
 swift run CodexWeekly --probe
 ```
 
-主要结构：
+Project structure:
 
-- `CodexQuotaClient.swift`：Codex app-server 通信
-- `QuotaSnapshot.swift`：周额度解析和窗口选择
-- `AppDelegate.swift`：菜单栏 UI、刷新及开机启动
-- `QuotaParserTests.swift`：协议响应解析测试
+- `CodexQuotaClient.swift`: Codex app-server communication
+- `QuotaSnapshot.swift`: weekly quota parsing and window selection
+- `AppDelegate.swift`: menu bar UI, refresh scheduling, and launch at login
+- `QuotaParserTests.swift`: protocol response parsing tests
 
 ## License
 
