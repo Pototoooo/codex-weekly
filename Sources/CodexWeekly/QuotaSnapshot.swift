@@ -1,6 +1,6 @@
 import Foundation
 
-struct QuotaSnapshot: Equatable, Sendable {
+struct QuotaWindow: Equatable, Sendable {
     let usedPercent: Double
     let windowDurationMinutes: Int
     let resetsAt: Date?
@@ -9,10 +9,24 @@ struct QuotaSnapshot: Equatable, Sendable {
         min(100, max(0, 100 - usedPercent))
     }
 
+    var isFiveHour: Bool {
+        // The rolling five-hour Codex window is represented as 300 minutes.
+        abs(windowDurationMinutes - 300) <= 15
+    }
+
     var isWeekly: Bool {
         // The Codex API currently represents a week as 10,080 minutes. Allow a
         // little tolerance so a server-side rounding change does not break UI.
         abs(windowDurationMinutes - 10_080) <= 60
+    }
+}
+
+struct QuotaSnapshot: Equatable, Sendable {
+    let fiveHour: QuotaWindow?
+    let weekly: QuotaWindow?
+
+    var preferredDisplayWindow: QuotaWindow? {
+        fiveHour ?? weekly
     }
 }
 
@@ -25,7 +39,7 @@ enum QuotaParsingError: LocalizedError {
         switch self {
         case .missingResult: "Codex 未返回额度结果"
         case .missingRateLimits: "Codex 返回结果中没有额度数据"
-        case .missingWindow: "没有找到周额度窗口"
+        case .missingWindow: "没有找到 5 小时或周额度窗口"
         }
     }
 }
@@ -46,15 +60,16 @@ enum QuotaParser {
             if let codex = buckets["codex"] as? [String: Any] {
                 candidates.append(codex)
             }
-            for value in buckets.values {
-                if let bucket = value as? [String: Any],
-                   !candidates.contains(where: { NSDictionary(dictionary: $0).isEqual(to: bucket) }) {
-                    candidates.append(bucket)
-                }
-            }
         }
         if let legacy = result["rateLimits"] as? [String: Any] {
             candidates.append(legacy)
+        }
+        // Older app-server builds may not expose a bucket named "codex". Only
+        // then consider other buckets so an unrelated model limit cannot
+        // override the actual Codex windows returned by the legacy field.
+        if candidates.isEmpty,
+           let buckets = result["rateLimitsByLimitId"] as? [String: Any] {
+            candidates.append(contentsOf: buckets.values.compactMap { $0 as? [String: Any] })
         }
         guard !candidates.isEmpty else { throw QuotaParsingError.missingRateLimits }
 
@@ -62,23 +77,23 @@ enum QuotaParser {
             [bucket["primary"], bucket["secondary"]].compactMap { $0 as? [String: Any] }
         }
 
-        // Prefer the explicit seven-day window. If the service ever omits its
-        // duration, selecting the longest window remains the least surprising.
-        let selected = windows.first(where: {
-            guard let minutes = number($0["windowDurationMins"]) else { return false }
-            return abs(Int(minutes) - 10_080) <= 60
-        }) ?? windows.max(by: {
-            (number($0["windowDurationMins"]) ?? 0) < (number($1["windowDurationMins"]) ?? 0)
-        })
+        let parsedWindows = windows.compactMap(parseWindow)
+        let fiveHour = parsedWindows.first(where: \.isFiveHour)
+        let weekly = parsedWindows.first(where: \.isWeekly)
 
-        guard let selected,
-              let used = number(selected["usedPercent"]),
-              let duration = number(selected["windowDurationMins"]) else {
+        guard fiveHour != nil || weekly != nil else {
             throw QuotaParsingError.missingWindow
         }
+        return QuotaSnapshot(fiveHour: fiveHour, weekly: weekly)
+    }
 
-        let reset = number(selected["resetsAt"]).map { Date(timeIntervalSince1970: $0) }
-        return QuotaSnapshot(
+    private static func parseWindow(_ object: [String: Any]) -> QuotaWindow? {
+        guard let used = number(object["usedPercent"]),
+              let duration = number(object["windowDurationMins"]) else {
+            return nil
+        }
+        let reset = number(object["resetsAt"]).map { Date(timeIntervalSince1970: $0) }
+        return QuotaWindow(
             usedPercent: used,
             windowDurationMinutes: Int(duration),
             resetsAt: reset

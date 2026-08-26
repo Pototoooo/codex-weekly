@@ -14,13 +14,14 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Pototoooo/codex-weekly" alt="MIT License"></a>
 </p>
 
-一个轻量的原生 macOS 菜单栏工具，显示当前 Codex 账号的**一周剩余额度**和重置时间。
+一个轻量的原生 macOS 菜单栏工具，同时显示当前 Codex 账号的**滚动 5 小时额度**、**一周额度**和各自的重置时间。
 
 > 这是独立的社区项目，与 OpenAI 无隶属、背书或赞助关系。
 
 ## 特点
 
-- 菜单栏直接显示剩余百分比
+- 菜单栏优先显示滚动 5 小时窗口的剩余百分比
+- 下拉菜单同时显示 5 小时与一周窗口的使用量和重置时间
 - 每 60 秒自动刷新，也可手动刷新
 - 自动适配浅色、深色及全屏菜单栏背景
 - 低额度时切换为警告图标，不依赖固定颜色
@@ -51,7 +52,8 @@
 ## 工作原理
 
 应用启动本机 Codex CLI 的 `app-server --stdio`，调用
-`account/rateLimits/read` 获取额度窗口，并显示时长为 10,080 分钟（一周）的额度窗口。
+`account/rateLimits/read` 获取额度窗口，同时解析时长为 300 分钟的滚动
+5 小时窗口，以及时长为 10,080 分钟的一周窗口。
 
 - 不直接读取 `~/.codex/auth.json`
 - 不复制或上传 Codex Token
@@ -70,7 +72,7 @@ swift run CodexWeekly --probe
 主要结构：
 
 - `CodexQuotaClient.swift`：Codex app-server 通信
-- `QuotaSnapshot.swift`：周额度解析和窗口选择
+- `QuotaSnapshot.swift`：5 小时与周额度解析和窗口选择
 - `AppDelegate.swift`：菜单栏 UI、刷新及开机启动
 - `QuotaParserTests.swift`：协议响应解析测试
 

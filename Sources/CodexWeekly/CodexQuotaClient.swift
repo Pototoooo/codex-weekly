@@ -18,7 +18,7 @@ enum CodexQuotaError: LocalizedError {
         case .serverError(let message):
             "Codex 返回错误：\(message)"
         case .noResponse:
-            "Codex 未返回周额度"
+            "Codex 未返回额度"
         }
     }
 }
