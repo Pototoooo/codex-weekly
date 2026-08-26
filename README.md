@@ -14,13 +14,14 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Pototoooo/codex-weekly" alt="MIT License"></a>
 </p>
 
-A lightweight native macOS menu bar utility that displays the **weekly quota remaining** and reset time for the current Codex account.
+A lightweight native macOS menu bar utility that displays the current Codex account's **rolling five-hour quota**, **weekly quota**, and both reset times.
 
 > This is an independent community project. It is not affiliated with, endorsed by, or sponsored by OpenAI.
 
 ## Features
 
-- Shows the remaining weekly quota directly in the menu bar
+- Shows the rolling five-hour quota directly in the menu bar
+- Shows five-hour and weekly usage/reset details in the menu
 - Refreshes every 60 seconds, with manual refresh support
 - Automatically adapts to light, dark, and fullscreen menu bar backgrounds
 - Uses a warning symbol for low quota instead of relying on fixed colors
@@ -51,8 +52,8 @@ Build artifacts are written to `dist/`. Building requires macOS 13+ and Xcode/Sw
 ## How It Works
 
 The app starts the local Codex CLI with `app-server --stdio`, calls
-`account/rateLimits/read`, and displays the quota window whose duration is
-10,080 minutes (one week).
+`account/rateLimits/read`, and parses both the 300-minute rolling five-hour
+window and the 10,080-minute weekly window.
 
 - Does not directly read `~/.codex/auth.json`
 - Does not copy or upload Codex tokens
@@ -71,7 +72,7 @@ swift run CodexWeekly --probe
 Project structure:
 
 - `CodexQuotaClient.swift`: Codex app-server communication
-- `QuotaSnapshot.swift`: weekly quota parsing and window selection
+- `QuotaSnapshot.swift`: five-hour and weekly quota parsing and window selection
 - `AppDelegate.swift`: menu bar UI, refresh scheduling, and launch at login
 - `QuotaParserTests.swift`: protocol response parsing tests
 

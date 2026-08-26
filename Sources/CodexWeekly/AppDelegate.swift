@@ -8,9 +8,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private var isRefreshing = false
 
-    private let remainingItem = NSMenuItem(title: "本周剩余：读取中…", action: nil, keyEquivalent: "")
-    private let usedItem = NSMenuItem(title: "已使用：—", action: nil, keyEquivalent: "")
-    private let resetItem = NSMenuItem(title: "重置时间：—", action: nil, keyEquivalent: "")
+    private let fiveHourRemainingItem = NSMenuItem(title: "5 小时剩余：读取中…", action: nil, keyEquivalent: "")
+    private let fiveHourUsedItem = NSMenuItem(title: "5 小时已使用：—", action: nil, keyEquivalent: "")
+    private let fiveHourResetItem = NSMenuItem(title: "5 小时重置：—", action: nil, keyEquivalent: "")
+    private let weeklyRemainingItem = NSMenuItem(title: "本周剩余：读取中…", action: nil, keyEquivalent: "")
+    private let weeklyUsedItem = NSMenuItem(title: "本周已使用：—", action: nil, keyEquivalent: "")
+    private let weeklyResetItem = NSMenuItem(title: "本周重置：—", action: nil, keyEquivalent: "")
     private let statusItemText = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private lazy var launchAtLoginItem = NSMenuItem(
         title: "登录时启动",
@@ -35,11 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = templateSymbol(
             named: "gauge.with.dots.needle.33percent",
             fallback: "gauge",
-            description: "Codex 周额度"
+            description: "Codex 额度"
         )
         button.imagePosition = .imageLeading
-        button.title = " --%"
-        button.toolTip = "Codex 本周剩余额度"
+        button.title = " 5h --%"
+        button.toolTip = "Codex 5 小时与周额度"
         button.contentTintColor = nil
     }
 
@@ -77,14 +80,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func configureMenu() {
         let menu = NSMenu()
-        remainingItem.isEnabled = false
-        usedItem.isEnabled = false
-        resetItem.isEnabled = false
+        let quotaItems = [
+            fiveHourRemainingItem, fiveHourUsedItem, fiveHourResetItem,
+            weeklyRemainingItem, weeklyUsedItem, weeklyResetItem
+        ]
+        for item in quotaItems { item.isEnabled = false }
         statusItemText.isEnabled = false
 
-        menu.addItem(remainingItem)
-        menu.addItem(usedItem)
-        menu.addItem(resetItem)
+        menu.addItem(fiveHourRemainingItem)
+        menu.addItem(fiveHourUsedItem)
+        menu.addItem(fiveHourResetItem)
+        menu.addItem(.separator())
+        menu.addItem(weeklyRemainingItem)
+        menu.addItem(weeklyUsedItem)
+        menu.addItem(weeklyResetItem)
         menu.addItem(statusItemText)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "立即刷新", action: #selector(refreshFromMenu), keyEquivalent: "r"))
@@ -122,17 +131,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func render(_ snapshot: QuotaSnapshot) {
-        let remaining = Int(snapshot.remainingPercent.rounded())
-        let used = Int(snapshot.usedPercent.rounded())
-        statusItem.button?.title = " \(remaining)%"
-        statusItem.button?.image = quotaSymbol(for: remaining)
-        statusItem.button?.contentTintColor = nil
-        statusItem.button?.toolTip = "Codex 本周剩余 \(remaining)%"
+        guard let display = snapshot.preferredDisplayWindow else {
+            render(QuotaParsingError.missingWindow)
+            return
+        }
 
-        remainingItem.title = "本周剩余：\(remaining)%"
-        usedItem.title = "已使用：\(used)%"
-        resetItem.title = "重置时间：\(formatReset(snapshot.resetsAt))"
+        let displayRemaining = Int(display.remainingPercent.rounded())
+        let warningRemaining = [snapshot.fiveHour, snapshot.weekly]
+            .compactMap { $0 }
+            .map { Int($0.remainingPercent.rounded()) }
+            .min() ?? displayRemaining
+
+        statusItem.button?.title = snapshot.fiveHour == nil ? " \(displayRemaining)%" : " 5h \(displayRemaining)%"
+        statusItem.button?.image = quotaSymbol(for: warningRemaining)
+        statusItem.button?.contentTintColor = nil
+        statusItem.button?.toolTip = tooltip(for: snapshot)
+
+        renderWindow(
+            snapshot.fiveHour,
+            remainingItem: fiveHourRemainingItem,
+            usedItem: fiveHourUsedItem,
+            resetItem: fiveHourResetItem,
+            label: "5 小时"
+        )
+        renderWindow(
+            snapshot.weekly,
+            remainingItem: weeklyRemainingItem,
+            usedItem: weeklyUsedItem,
+            resetItem: weeklyResetItem,
+            label: "本周"
+        )
         statusItemText.title = "每分钟自动刷新 · 刚刚更新"
+    }
+
+    private func renderWindow(
+        _ window: QuotaWindow?,
+        remainingItem: NSMenuItem,
+        usedItem: NSMenuItem,
+        resetItem: NSMenuItem,
+        label: String
+    ) {
+        guard let window else {
+            remainingItem.title = "\(label)剩余：未返回"
+            usedItem.title = "\(label)已使用：—"
+            resetItem.title = "\(label)重置：—"
+            return
+        }
+        remainingItem.title = "\(label)剩余：\(Int(window.remainingPercent.rounded()))%"
+        usedItem.title = "\(label)已使用：\(Int(window.usedPercent.rounded()))%"
+        resetItem.title = "\(label)重置：\(formatReset(window.resetsAt))"
+    }
+
+    private func tooltip(for snapshot: QuotaSnapshot) -> String {
+        var parts: [String] = []
+        if let fiveHour = snapshot.fiveHour {
+            parts.append("5 小时剩余 \(Int(fiveHour.remainingPercent.rounded()))%")
+        }
+        if let weekly = snapshot.weekly {
+            parts.append("本周剩余 \(Int(weekly.remainingPercent.rounded()))%")
+        }
+        return "Codex " + parts.joined(separator: " · ")
     }
 
     private func render(_ error: Error) {
@@ -144,9 +202,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         statusItem.button?.contentTintColor = nil
         statusItem.button?.toolTip = error.localizedDescription
-        remainingItem.title = "本周剩余：读取失败"
-        usedItem.title = "已使用：—"
-        resetItem.title = "重置时间：—"
+        fiveHourRemainingItem.title = "5 小时剩余：读取失败"
+        fiveHourUsedItem.title = "5 小时已使用：—"
+        fiveHourResetItem.title = "5 小时重置：—"
+        weeklyRemainingItem.title = "本周剩余：读取失败"
+        weeklyUsedItem.title = "本周已使用：—"
+        weeklyResetItem.title = "本周重置：—"
         statusItemText.title = error.localizedDescription
     }
 
@@ -156,13 +217,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             templateSymbol(
                 named: "gauge.with.dots.needle.33percent",
                 fallback: "gauge",
-                description: "Codex 周额度"
+                description: "Codex 额度"
             )
         default:
             templateSymbol(
                 named: "exclamationmark.triangle.fill",
                 fallback: "exclamationmark.circle",
-                description: "Codex 周额度不足"
+                description: "Codex 额度不足"
             )
         }
     }
