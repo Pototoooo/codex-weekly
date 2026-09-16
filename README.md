@@ -57,8 +57,8 @@ window and the 10,080-minute weekly window.
 
 - Does not directly read `~/.codex/auth.json`
 - Does not copy or upload Codex tokens
-- Contains no analytics, telemetry, or third-party network requests
-- All quota access is handled locally by the Codex CLI
+- Local Codex mode contains no analytics, telemetry, or third-party network requests
+- In local Codex mode, all quota access is handled locally by the Codex CLI
 
 The Codex CLI app-server is experimental, so future protocol changes may require updates.
 
@@ -79,3 +79,27 @@ Project structure:
 ## License
 
 [MIT](LICENSE)
+
+## Sub2API allocated allowance (optional)
+
+Choose **配置 Sub2API…** in the menu, enter the HTTPS Base URL and API Key,
+then **保存并查询**. The key is stored in macOS Keychain, scoped to the normalized
+endpoint, never in preferences or logs. Only the configured server receives it
+via `GET /v1/usage`. Redirects, HTTP URLs, browser cookies and response caching
+are disabled. This optional mode makes a third-party request, unlike local Codex mode.
+
+The menu shows daily and weekly **allocated USD allowances**, used/limit/remaining,
+and refresh time; the menu bar always shows daily remaining percentage (unknown if absent). Subscription
+allowances may be shared across keys in that subscription; these are not the
+upstream 20x account limits. Refresh is every five minutes or manually. Missing
+windows are not zero. A combined balance is not presented as weekly quota.
+Reset times are only displayed when explicitly returned, otherwise unknown.
+Errors clear quota values and show the last successful update time when available.
+Use **切换到 Codex 本地额度** to return to the unchanged local Codex mode.
+
+Only `subscription.daily_usage_usd/daily_limit_usd`, weekly equivalents, and
+`rate_limits` entries with `window: 1d/7d` are mapped. Different deployments may
+omit subscription details; verify with your platform before relying on values.
+Never paste your key into chat, git, or a bug report.
+
+The source-switch menu item always offers the other source. Switching from local to Sub2 reuses the saved Keychain key without reopening setup; fetch errors do not prevent switching back.

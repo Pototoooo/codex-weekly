@@ -7,6 +7,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let client = CodexQuotaClient()
     private var timer: Timer?
     private var isRefreshing = false
+    private var generation = 0
+    private var lastSub2Attempt = Date.distantPast
+    private var sub2Enabled: Bool { UserDefaults.standard.bool(forKey: "sub2Enabled") }
+    private let sourceItem = NSMenuItem(title: "数据源：Codex 本地", action: nil, keyEquivalent: "")
+    private var lastSub2Success: Date?
+    private lazy var sourceSwitchItem = NSMenuItem(
+        title: QuotaSource(sub2Enabled: sub2Enabled).switchTitle,
+        action: #selector(toggleQuotaSource), keyEquivalent: ""
+    )
+
 
     private let fiveHourRemainingItem = NSMenuItem(title: "5 小时剩余：读取中…", action: nil, keyEquivalent: "")
     private let fiveHourUsedItem = NSMenuItem(title: "5 小时已使用：—", action: nil, keyEquivalent: "")
@@ -29,7 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()
 
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+            Task { @MainActor in
+                guard let self else { return }
+                if !self.sub2Enabled || Date().timeIntervalSince(self.lastSub2Attempt) >= 300 { self.refresh() }
+            }
         }
     }
 
@@ -87,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for item in quotaItems { item.isEnabled = false }
         statusItemText.isEnabled = false
 
+        sourceItem.isEnabled = false
+        menu.addItem(sourceItem)
         menu.addItem(fiveHourRemainingItem)
         menu.addItem(fiveHourUsedItem)
         menu.addItem(fiveHourResetItem)
@@ -97,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusItemText)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "立即刷新", action: #selector(refreshFromMenu), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem(title: "配置 Sub2API…", action: #selector(configureSub2), keyEquivalent: ""))
+        menu.addItem(sourceSwitchItem)
         launchAtLoginItem.target = self
         menu.addItem(launchAtLoginItem)
         menu.addItem(NSMenuItem(title: "打开 Codex", action: #selector(openCodex), keyEquivalent: "o"))
@@ -114,20 +131,155 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refresh() {
+        sourceSwitchItem.title = QuotaSource(sub2Enabled: sub2Enabled).switchTitle
         guard !isRefreshing else { return }
         isRefreshing = true
+        if sub2Enabled { refreshSub2(); return }
+        sourceItem.title = "数据源：Codex 本地"
+        let requestGeneration = generation
         statusItemText.title = "正在读取 Codex 本地额度…"
 
         Task.detached(priority: .utility) { [client] in
             let result = Result { try client.fetch() }
             await MainActor.run { [weak self] in
-                self?.isRefreshing = false
+                guard let self, self.generation == requestGeneration else { return }
+                self.isRefreshing = false
                 switch result {
-                case .success(let snapshot): self?.render(snapshot)
-                case .failure(let error): self?.render(error)
+                case .success(let snapshot): self.render(snapshot)
+                case .failure(let error): self.render(error)
                 }
             }
         }
+    }
+
+    @objc private func configureSub2() {
+        let alert = NSAlert()
+        alert.messageText = "配置 Sub2API 分配额度"
+        alert.informativeText = "Key 仅保存至本机钥匙串，且仅发送至下方地址。不会读取浏览器 Cookie。保存后切换到 Sub2；留空 Key 可复用该地址已保存的 Key。"
+        alert.addButton(withTitle: "保存并查询")
+        alert.addButton(withTitle: "取消")
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
+        let base = NSTextField(frame: NSRect(x: 0, y: 65, width: 400, height: 24))
+        base.stringValue = UserDefaults.standard.string(forKey: "sub2BaseURL") ?? "https://dodoki.cc"
+        base.placeholderString = "HTTPS Base URL"
+        let key = NSSecureTextField(frame: NSRect(x: 0, y: 25, width: 400, height: 24))
+        key.placeholderString = "API Key（不在聊天或日志中展示）"
+        view.addSubview(base)
+        view.addSubview(key)
+        alert.accessoryView = view
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            let endpoint = try Sub2Configuration(baseURL: base.stringValue, key: "placeholder").endpoint
+            let secret = key.stringValue.isEmpty ? try Sub2Keychain.read(endpoint: endpoint) : key.stringValue
+            let config = try Sub2Configuration(baseURL: base.stringValue, key: secret)
+            try Sub2Keychain.save(config)
+            UserDefaults.standard.set(base.stringValue, forKey: "sub2BaseURL")
+            UserDefaults.standard.set(true, forKey: "sub2Enabled")
+            generation += 1
+            isRefreshing = false
+            lastSub2Success = nil
+            clearSub2("读取中…")
+            refresh()
+        } catch {
+            let failure = NSAlert()
+            failure.messageText = "配置未保存"
+            failure.informativeText = error.localizedDescription
+            failure.runModal()
+        }
+    }
+
+    @objc private func toggleQuotaSource() {
+        let target = QuotaSource(sub2Enabled: sub2Enabled).other
+        if target == .local {
+            useLocalCodex()
+        } else {
+            // Switching sources must not reopen setup or rewrite the saved key.
+            UserDefaults.standard.set(true, forKey: "sub2Enabled")
+            generation += 1
+            isRefreshing = false
+            lastSub2Success = nil
+            clearSub2("读取中…")
+            refresh()
+        }
+    }
+
+    @objc private func useLocalCodex() {
+        UserDefaults.standard.set(false, forKey: "sub2Enabled")
+        generation += 1
+        isRefreshing = false
+        render(QuotaParsingError.missingWindow)
+        refresh()
+    }
+
+    private func refreshSub2() {
+        sourceItem.title = "数据源：Sub2API 分配额度（非上游 20x 总额度）"
+        statusItemText.title = "正在查询 Sub2API…"
+        lastSub2Attempt = Date()
+        let requestGeneration = generation
+        Task {
+            do {
+                let base = UserDefaults.standard.string(forKey: "sub2BaseURL") ?? "https://dodoki.cc"
+                let endpoint = try Sub2Configuration(baseURL: base, key: "placeholder").endpoint
+                let config = try Sub2Configuration(baseURL: base, key: Sub2Keychain.read(endpoint: endpoint))
+                let snapshot = try await Sub2QuotaClient().fetch(config)
+                guard generation == requestGeneration else { return }
+                isRefreshing = false
+                renderSub2(snapshot)
+            } catch {
+                guard generation == requestGeneration else { return }
+                isRefreshing = false
+                clearSub2("暂无法获取")
+                let last = lastSub2Success.map { " · 上次成功：" + Self.sub2Time($0) } ?? ""
+                statusItemText.title = error.localizedDescription + last
+            }
+        }
+    }
+
+    private func clearSub2(_ message: String) {
+        statusItem.button?.title = " Sub2 --%"
+        statusItem.button?.toolTip = "Sub2API " + message
+        statusItem.button?.image = quotaSymbol(for: 0)
+        fiveHourRemainingItem.title = "日额度：" + message
+        fiveHourUsedItem.title = "日已用 / 上限：—"
+        fiveHourResetItem.title = "日重置：未知"
+        weeklyRemainingItem.title = "周额度：" + message
+        weeklyUsedItem.title = "周已用 / 上限：—"
+        weeklyResetItem.title = "周重置：未知"
+    }
+
+    private func renderSub2(_ snapshot: Sub2Snapshot) {
+        lastSub2Success = snapshot.fetchedAt
+        sourceItem.title = "Sub2API · " + snapshot.scope
+        func fill(_ window: Sub2Window?, _ label: String, _ remaining: NSMenuItem, _ used: NSMenuItem, _ reset: NSMenuItem) {
+            guard let window else {
+                remaining.title = "\(label)额度：未返回或未设上限"
+                used.title = "\(label)已用 / 上限：—"
+                reset.title = "\(label)重置：未知"
+                return
+            }
+            let percent = Int(window.remainingPercent.rounded())
+            remaining.title = "\(label)剩余：\(Self.amount(window.remaining)) USD（\(percent)%）"
+            used.title = "\(label)已用 / 上限：\(Self.amount(window.used)) / \(Self.amount(window.limit)) USD"
+            reset.title = "\(label)重置：\(formatReset(window.reset))"
+        }
+        fill(snapshot.daily, "日", fiveHourRemainingItem, fiveHourUsedItem, fiveHourResetItem)
+        fill(snapshot.weekly, "周", weeklyRemainingItem, weeklyUsedItem, weeklyResetItem)
+        statusItem.button?.title = snapshot.menuBarTitle
+        if snapshot.daily == nil && snapshot.weekly == nil, let summary = snapshot.summary {
+            weeklyRemainingItem.title = "综合剩余：\(Self.amount(summary)) USD（非周额度）"
+        }
+        let minimum = [snapshot.daily, snapshot.weekly].compactMap { $0?.remainingPercent }.min() ?? 100
+        statusItem.button?.image = quotaSymbol(for: Int(minimum))
+        statusItem.button?.toolTip = [sourceItem.title, fiveHourRemainingItem.title, weeklyRemainingItem.title].joined(separator: " · ")
+        statusItemText.title = "5 分钟自动刷新 · 更新：" + Self.sub2Time(snapshot.fetchedAt)
+    }
+
+    private static func amount(_ value: Double) -> String { String(format: "%.2f", value) }
+    private static func sub2Time(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm:ss"
+        return formatter.string(from: date)
     }
 
     private func render(_ snapshot: QuotaSnapshot) {
