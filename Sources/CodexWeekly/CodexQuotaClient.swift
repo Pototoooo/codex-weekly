@@ -104,7 +104,9 @@ final class CodexQuotaClient: @unchecked Sendable {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let candidates = [
             "/Applications/ChatGPT.app/Contents/Resources/codex",
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
             "/Applications/Codex.app/Contents/Resources/codex",
+            "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
             "\(home)/.local/bin/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex"

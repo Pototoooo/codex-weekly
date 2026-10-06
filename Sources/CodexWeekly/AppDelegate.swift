@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var generation = 0
     private var lastSub2Attempt = Date.distantPast
     private var sub2Enabled: Bool { UserDefaults.standard.bool(forKey: "sub2Enabled") }
+    private var cachedSub2Key: (endpoint: URL, value: String)?
     private let sourceItem = NSMenuItem(title: "数据源：Codex 本地", action: nil, keyEquivalent: "")
     private var lastSub2Success: Date?
     private lazy var sourceSwitchItem = NSMenuItem(
@@ -171,9 +172,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         do {
             let endpoint = try Sub2Configuration(baseURL: base.stringValue, key: "placeholder").endpoint
-            let secret = key.stringValue.isEmpty ? try Sub2Keychain.read(endpoint: endpoint) : key.stringValue
+            let secret: String
+            if key.stringValue.isEmpty {
+                secret = try savedSub2Key(endpoint: endpoint)
+            } else {
+                secret = key.stringValue
+            }
             let config = try Sub2Configuration(baseURL: base.stringValue, key: secret)
             try Sub2Keychain.save(config)
+            cachedSub2Key = (config.endpoint, config.key)
             UserDefaults.standard.set(base.stringValue, forKey: "sub2BaseURL")
             UserDefaults.standard.set(true, forKey: "sub2Enabled")
             generation += 1
@@ -221,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let base = UserDefaults.standard.string(forKey: "sub2BaseURL") ?? "https://dodoki.cc"
                 let endpoint = try Sub2Configuration(baseURL: base, key: "placeholder").endpoint
-                let config = try Sub2Configuration(baseURL: base, key: Sub2Keychain.read(endpoint: endpoint))
+                let config = try Sub2Configuration(baseURL: base, key: savedSub2Key(endpoint: endpoint))
                 let snapshot = try await Sub2QuotaClient().fetch(config)
                 guard generation == requestGeneration else { return }
                 isRefreshing = false
@@ -234,6 +241,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 statusItemText.title = error.localizedDescription + last
             }
         }
+    }
+
+    private func savedSub2Key(endpoint: URL) throws -> String {
+        if let cached = cachedSub2Key, cached.endpoint == endpoint {
+            return cached.value
+        }
+        let value = try Sub2Keychain.read(endpoint: endpoint)
+        cachedSub2Key = (endpoint, value)
+        return value
     }
 
     private func clearSub2(_ message: String) {

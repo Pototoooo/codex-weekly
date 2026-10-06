@@ -20,11 +20,19 @@ enum Sub2Keychain {
     }
     static func save(_ configuration: Sub2Configuration) throws {
         let q = query(configuration.endpoint)
-        let attributes = [kSecValueData as String: Data(configuration.key.utf8)]
+        // Keep the item available after the login keychain is first unlocked.
+        // This avoids a password prompt on every quota refresh or source switch.
+        // Updating the accessibility class of an existing item can trigger an
+        // authorization prompt or fail for items created by an older build.
+        // Keep that update limited to the value; new items use the improved
+        // accessibility class below.
+        let attributes: [String: Any] = [
+            kSecValueData as String: Data(configuration.key.utf8)
+        ]
         var status = SecItemUpdate(q as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound {
             var add = q.merging(attributes) { _, new in new }
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             status = SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw Sub2Error.keychain }
